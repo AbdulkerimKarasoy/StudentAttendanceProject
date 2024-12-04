@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Face Recognition</title>
+    <!-- Link to the external CSS file in the static directory -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Header Section -->
+    <header>
+        <div class="container">
+            <h1>Student Attendance Project</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Registration Section -->
+        <section>
+            <h2>Register a Student</h2>
+            <form id="registerForm" action="/register_capture" method="post" enctype="multipart/form-data">
+                <input type="text" name="name" id="nameInput" placeholder="Enter Name" required><br>
+
+                <!-- Webcam Capture Option -->
+                <div id="webcamOption">
+                    <h3>Capture from Webcam</h3>
+                    <button type="button" id="startCameraButton">Start Camera</button><br>
+                    <video id="video" width="640" height="480" autoplay style="display: none;"></video>
+                    <button type="button" id="captureButton" style="display: none;">Capture Image</button>
+                    <canvas id="canvas" width="640" height="480" style="display: none;"></canvas>
+                    <img id="capturedImage" src="" alt="Captured Image" style="display: none;">
+                    <br>
+                    <button type="button" id="retryButton" style="display: none;">Retry</button>
+                </div>
+
+                <!-- Register Button -->
+                <button type="submit" id="registerButton">Register Face</button>
+            </form>
+        </section>
+
+        <!-- Spacer between sections -->
+        <hr style="margin: 40px 0;">
+
+        <!-- Recognition Section -->
+        <section>
+            <h2>Recognize a Student</h2>
+
+            <!-- Display result messages -->
+            <div id="result">
+                {% if result %}
+                    <h2>{{ result }}</h2>
+                {% endif %}
+            </div>
+
+            <div id="recognitionSection">
+                <button type="button" id="startRecognitionCameraButton">Start Camera</button><br>
+                <video id="recognizeVideo" width="640" height="480" autoplay style="display: none;"></video>
+                <button type="button" id="recognizeCaptureButton" style="display: none;">Capture Image</button>
+                <canvas id="recognizeCanvas" width="640" height="480" style="display: none;"></canvas>
+                <img id="recognizeCapturedImage" src="" alt="Captured Image" style="display: none;">
+                <br>
+                <button type="button" id="recognizeRetryButton" style="display: none;">Retry</button>
+                <button id="recognizeSendButton" style="display: none;">Recognize Face</button>
+            </div>
+        </section>
+
+        <!-- Spacer between sections -->
+        <hr style="margin: 40px 0;">
+
+        <!-- Attendance Records Section -->
+        <section>
+            <h2>Attendance Records</h2>
+            <button id="resetAttendanceButton">Start New Class</button>
+            <div id="attendanceMessage" style="margin-top: 10px;"></div>
+            <table id="attendanceTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Date</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="attendanceTableBody">
+                    {% for record in attendance_records %}
+                    <tr>
+                        <td>{{ record[0] }}</td>
+                        <td>{{ record[1] }}</td>
+                        <td>{{ record[2] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+    <script>
+    // Registration variables
+    const startCameraButton = document.getElementById('startCameraButton');
+    const video = document.getElementById('video');
+    const captureButton = document.getElementById('captureButton');
+    const canvas = document.getElementById('canvas');
+    const capturedImage = document.getElementById('capturedImage');
+    const retryButton = document.getElementById('retryButton');
+    const registerForm = document.getElementById('registerForm');
+    const nameInput = document.getElementById('nameInput');
+    let stream;  // Variable to hold the video stream
+
+    // Start the camera when the user clicks "Start Camera" (Registration)
+    startCameraButton.addEventListener('click', function() {
+        navigator.mediaDevices.getUserMedia({ video: true }).then(function(s) {
+            stream = s;
+            video.srcObject = stream;  // Set the video element's source to the camera stream
+            video.style.display = 'block';  // Show the video element
+            captureButton.style.display = 'inline-block';  // Show the capture button
+            startCameraButton.style.display = 'none';  // Hide the start camera button
+        }).catch(function(err) {
+            alert("Error accessing the camera: " + err);
+        });
+    });
+
+    // Capture the image from the video stream (Registration)
+    captureButton.addEventListener('click', function() {
+        const context = canvas.getContext('2d');
+        canvas.style.display = 'none';
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);  // Draw the video frame onto the canvas
+
+        // Stop the video stream and hide the video element
+        stream.getTracks().forEach(track => track.stop());
+        video.style.display = 'none';
+
+        // Display the captured image
+        const dataURL = canvas.toDataURL('image/png');  // Get the data URL of the captured image
+        capturedImage.src = dataURL;  // Set the src of the img element to the captured image
+        capturedImage.style.display = 'block';
+
+        // Show the retry button
+        retryButton.style.display = 'inline-block';
+
+        // Hide the capture button
+        captureButton.style.display = 'none';
+    });
+
+    // Retry capturing the image (Registration)
+    retryButton.addEventListener('click', function() {
+        // Hide the captured image and retry button
+        capturedImage.style.display = 'none';
+        retryButton.style.display = 'none';
+
+        // Restart the video stream
+        navigator.mediaDevices.getUserMedia({ video: true }).then(function(s) {
+            stream = s;
+            video.srcObject = stream;
+            video.style.display = 'block';
+            captureButton.style.display = 'inline-block';
+        }).catch(function(err) {
+            alert("Error accessing the camera: " + err);
+        });
+    });
+
+    // Modify the form submission to include the captured image if available
+    registerForm.addEventListener('submit', function(event) {
+        // Check if a captured image is available
+        if (capturedImage.src) {
+            event.preventDefault(); // Prevent the default form submission
+
+            const name = nameInput.value.trim();
+            if (!name) {
+                alert('Please enter a name.');
+                return;
+            }
+
+            // Convert the dataURL to a blob
+            fetch(capturedImage.src)
+                .then(res => res.blob())
+                .then(blob => {
+                    const formData = new FormData();
+                    formData.append('name', name);
+                    formData.append('image_file', blob, 'captured_image.png');
+
+                    // Send the form data to the server via AJAX
+                    fetch('/register_capture', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        const resultDiv = document.getElementById('result');
+                        resultDiv.innerHTML = `<h2>${data.result}</h2>`;
+                        // Optionally, reset the form here
+                        loadKnownFaces(); // Reload known faces
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+                });
+        }
+    });
+
+    // Recognition variables
+    const startRecognitionCameraButton = document.getElementById('startRecognitionCameraButton');
+    const recognizeVideo = document.getElementById('recognizeVideo');
+    const recognizeCaptureButton = document.getElementById('recognizeCaptureButton');
+    const recognizeCanvas = document.getElementById('recognizeCanvas');
+    const recognizeCapturedImage = document.getElementById('recognizeCapturedImage');
+    const recognizeRetryButton = document.getElementById('recognizeRetryButton');
+    const recognizeSendButton = document.getElementById('recognizeSendButton');
+    let recognizeStream;  // Variable to hold the recognition video stream
+
+    // Start the camera when the user clicks "Start Camera" (Recognition)
+    startRecognitionCameraButton.addEventListener('click', function() {
+        navigator.mediaDevices.getUserMedia({ video: true }).then(function(s) {
+            recognizeStream = s;
+            recognizeVideo.srcObject = recognizeStream;
+            recognizeVideo.style.display = 'block';
+            recognizeCaptureButton.style.display = 'inline-block';
+            startRecognitionCameraButton.style.display = 'none';
+        }).catch(function(err) {
+            alert("Error accessing the camera: " + err);
+        });
+    });
+
+    // Capture the image from the video stream (Recognition)
+    recognizeCaptureButton.addEventListener('click', function() {
+        const context = recognizeCanvas.getContext('2d');
+        recognizeCanvas.style.display = 'none';
+        context.drawImage(recognizeVideo, 0, 0, recognizeCanvas.width, recognizeCanvas.height);
+
+        // Stop the video stream and hide the video element
+        recognizeStream.getTracks().forEach(track => track.stop());
+        recognizeVideo.style.display = 'none';
+
+        // Display the captured image
+        const dataURL = recognizeCanvas.toDataURL('image/png');
+        recognizeCapturedImage.src = dataURL;
+        recognizeCapturedImage.style.display = 'block';
+
+        // Show the retry and recognize buttons
+        recognizeRetryButton.style.display = 'inline-block';
+        recognizeSendButton.style.display = 'inline-block';
+
+        // Hide the capture button
+        recognizeCaptureButton.style.display = 'none';
+    });
+
+    // Retry capturing the image (Recognition)
+    recognizeRetryButton.addEventListener('click', function() {
+        // Hide the captured image and retry button
+        recognizeCapturedImage.style.display = 'none';
+        recognizeRetryButton.style.display = 'none';
+        recognizeSendButton.style.display = 'none';
+
+        // Restart the video stream
+        navigator.mediaDevices.getUserMedia({ video: true }).then(function(s) {
+            recognizeStream = s;
+            recognizeVideo.srcObject = recognizeStream;
+            recognizeVideo.style.display = 'block';
+            recognizeCaptureButton.style.display = 'inline-block';
+        }).catch(function(err) {
+            alert("Error accessing the camera: " + err);
+        });
+    });
+
+    // Send the captured image for recognition
+    recognizeSendButton.addEventListener('click', function() {
+        // Convert the dataURL to a blob
+        fetch(recognizeCapturedImage.src)
+            .then(res => res.blob())
+            .then(blob => {
+                const formData = new FormData();
+                formData.append('image_file', blob, 'captured_image.png');
+
+                // Send the form data to the server via AJAX
+                fetch('/recognize', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const resultDiv = document.getElementById('result');
+                    resultDiv.innerHTML = `<h2>${data.result}</h2>`;
+                    // Fetch updated attendance records and update the table
+                    updateAttendanceTable();
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                });
+            });
+    });
+
+    // Function to update the attendance table
+    function updateAttendanceTable() {
+        fetch('/attendance_records')
+            .then(response => response.json())
+            .then(data => {
+                const attendanceTableBody = document.getElementById('attendanceTableBody');
+                // Clear existing table body
+                attendanceTableBody.innerHTML = '';
+                data.attendance_records.forEach(record => {
+                    const tr = document.createElement('tr');
+                    record.forEach(cellData => {
+                        const td = document.createElement('td');
+                        td.textContent = cellData;
+                        tr.appendChild(td);
+                    });
+                    attendanceTableBody.appendChild(tr);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching attendance records:', error);
+            });
+    }
+
+    // Event listener for the "Start New Class" button
+    const resetAttendanceButton = document.getElementById('resetAttendanceButton');
+    resetAttendanceButton.addEventListener('click', function() {
+        if (confirm('Are you sure you want to start a new class? This will reset the attendance records.')) {
+            fetch('/reset_attendance', {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display a message confirming the reset
+                const attendanceMessage = document.getElementById('attendanceMessage');
+                attendanceMessage.textContent = data.result;
+                // Clear the message after a few seconds
+                setTimeout(() => {
+                    attendanceMessage.textContent = '';
+                }, 3000);
+                // Update the attendance table
+                updateAttendanceTable();
+            })
+            .catch(error => {
+                console.error('Error resetting attendance records:', error);
+            });
+        }
+    });
+    </script>
+</body>
+</html>
